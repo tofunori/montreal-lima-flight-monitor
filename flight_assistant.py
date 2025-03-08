@@ -342,20 +342,15 @@ def run_flight_monitor(params):
     """
     cmd = ["python", "flight_monitor.py"]
     
-    # Add parameters
+    # Looking at the actual flight_monitor.py code, I don't see any date parameters
+    # in the argument parser. The script just uses TARGET_DEPARTURE_DATE and TARGET_RETURN_DATE constants.
+    # So we can't pass the dates directly via command line arguments.
+    
     if params.get("origin"):
         cmd.extend(["--origin", params["origin"]])
     
     if params.get("destination"):
         cmd.extend(["--destination", params["destination"]])
-    
-    if params.get("depart_date"):
-        # The correct parameter name in flight_monitor.py is "depart" not "depart-date"
-        cmd.extend(["--depart", params["depart_date"]])
-    
-    if params.get("return_date"):
-        # The correct parameter name in flight_monitor.py is "return" not "return-date"
-        cmd.extend(["--return", params["return_date"]])
     
     if params.get("max_stops") is not None:
         cmd.extend(["--max-stops", str(params["max_stops"])])
