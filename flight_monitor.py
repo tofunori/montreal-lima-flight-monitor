@@ -320,7 +320,14 @@ class FlightPriceMonitor:
                 self.send_notification(cheapest_offer)
         
         logger.info(f"Cheapest price: ${price:.2f} with {', '.join(cheapest_details['airlines'])}")
-        logger.info(f"{'Direct' if cheapest_details['is_direct'] else f'Connecting ({cheapest_details[\"stops\"]} stops)'} flight with {cheapest_details['segments']} segment(s)")
+        
+        # Fix the nested f-string issue
+        if cheapest_details['is_direct']:
+            flight_type = "Direct"
+        else:
+            flight_type = f"Connecting ({cheapest_details['stops']} stops)"
+        
+        logger.info(f"{flight_type} flight with {cheapest_details['segments']} segment(s)")
         
         return cheapest_details
         
@@ -343,6 +350,12 @@ class FlightPriceMonitor:
         dep_str = dep_dt.strftime("%Y-%m-%d %H:%M")
         arr_str = arr_dt.strftime("%Y-%m-%d %H:%M")
         
+        # Create description of flight type
+        if flight_details['is_direct']:
+            flight_type = "Direct Flight"
+        else:
+            flight_type = f"Connecting Flight ({flight_details['stops']} stops)"
+        
         # Create email message
         subject = f"Price Alert: Montreal to Lima - ${flight_details['price']:.2f}"
         body = f"""
@@ -354,7 +367,7 @@ class FlightPriceMonitor:
         Airlines: {', '.join(flight_details['airlines'])}
         Departure: {dep_str}
         Arrival: {arr_str}
-        {'Direct Flight' if flight_details['is_direct'] else f'Connecting Flight ({flight_details["stops"]} stops)'}
+        {flight_type}
         
         This price is below your threshold of ${self.price_threshold}!
         Book now to secure this price!
