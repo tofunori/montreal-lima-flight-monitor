@@ -48,7 +48,7 @@ class FlightPriceMonitor:
     def __init__(self, api_key=None, api_secret=None, origin="YUL", destination="LIM", 
                  email=None, price_threshold=None, check_interval_hours=24,
                  flexible_dates=False, days_range=3, smtp_settings=None,
-                 max_stops=1, specific_dates=True):
+                 max_stops=2, specific_dates=True, currency="CAD"):
         """
         Initialize the flight price monitor.
         
@@ -63,8 +63,9 @@ class FlightPriceMonitor:
             flexible_dates (bool): Whether to check prices for a range of dates
             days_range (int): Number of days before/after the target date to check
             smtp_settings (dict, optional): SMTP settings for email notifications
-            max_stops (int): Maximum number of stops allowed (default: 1)
+            max_stops (int): Maximum number of stops allowed (default: 2)
             specific_dates (bool): Use specific date range May 29 - June 9, 2025
+            currency (str): Currency code for prices (default: CAD)
         """
         # Try to get API credentials from environment variables first, then use defaults
         self.api_key = api_key or os.environ.get('AMADEUS_API_KEY', DEFAULT_API_KEY)
@@ -82,9 +83,11 @@ class FlightPriceMonitor:
         self.previous_prices = {}
         self.max_stops = max_stops
         self.specific_dates = specific_dates
+        self.currency = currency
         
         logger.info(f"Initializing flight monitor for {origin} to {destination}")
         logger.info(f"Maximum stops: {max_stops}")
+        logger.info(f"Currency: {currency}")
         if self.specific_dates:
             logger.info(f"Focusing on May 29 - June 9, 2025 date range")
         
@@ -156,7 +159,7 @@ class FlightPriceMonitor:
             "destinationLocationCode": self.destination,
             "departureDate": depart_date,
             "adults": 1,
-            "currencyCode": "CAD",  # Canadian dollars
+            "currencyCode": self.currency,
             "max": 20  # Increased to get more options for filtering
         }
         
@@ -173,6 +176,14 @@ class FlightPriceMonitor:
                 return []
                 
             logger.info(f"Found {len(response.data)} flight offers")
+            
+            # Verify the currency in the response
+            if response.data and 'price' in response.data[0] and 'currency' in response.data[0]['price']:
+                actual_currency = response.data[0]['price']['currency']
+                logger.info(f"Currency in response: {actual_currency}")
+                if actual_currency != self.currency:
+                    logger.warning(f"Requested {self.currency} but received {actual_currency}")
+            
             return response.data
             
         except ResponseError as error:
@@ -189,39 +200,55 @@ class FlightPriceMonitor:
         Returns:
             dict: Dictionary with price, airlines, and offer ID
         """
-        price = float(offer['price']['total'])
-        airlines = []
-        
-        for itinerary in offer['itineraries']:
-            for segment in itinerary['segments']:
-                if segment['carrierCode'] not in airlines:
-                    airlines.append(segment['carrierCode'])
-        
-        # Extract additional useful info
-        segments = sum(len(itinerary['segments']) for itinerary in offer['itineraries'])
-        is_direct = segments == 1
-        
-        # Skip flights with more than the maximum allowed stops
-        # Each stop adds 1 to segment count (1 segment = direct, 2 segments = 1 stop, etc.)
-        max_segments = self.max_stops + 1
-        if segments > max_segments:
-            logger.debug(f"Skipping flight with {segments-1} stops (more than max allowed: {self.max_stops})")
+        try:
+            price = float(offer['price']['total'])
+            currency = offer['price']['currency']
+            airlines = []
+            
+            segments_list = []
+            for i, itinerary in enumerate(offer['itineraries']):
+                direction = "Outbound" if i == 0 else "Return"
+                segments_list.append(f"{direction}: {len(itinerary['segments'])} segment(s)")
+                for segment in itinerary['segments']:
+                    if segment['carrierCode'] not in airlines:
+                        airlines.append(segment['carrierCode'])
+            
+            # Extract additional useful info
+            segments = sum(len(itinerary['segments']) for itinerary in offer['itineraries'])
+            is_direct = segments == 1
+            stops = segments - 1  # Number of stops
+            
+            # Log detailed information about this offer for debugging
+            logger.debug(f"Flight offer: {offer['id']}, Price: {price} {currency}, Segments: {segments}, Stops: {stops}")
+            logger.debug(f"Segments breakdown: {', '.join(segments_list)}")
+            
+            # Skip flights with more than the maximum allowed stops
+            # Each stop adds 1 to segment count (1 segment = direct, 2 segments = 1 stop, etc.)
+            max_segments = self.max_stops + 1
+            if segments > max_segments:
+                logger.info(f"Skipping flight with {stops} stops (more than max allowed: {self.max_stops})")
+                return None
+            
+            # Extract departure and arrival times
+            departure_time = offer['itineraries'][0]['segments'][0]['departure']['at']
+            arrival_time = offer['itineraries'][0]['segments'][-1]['arrival']['at']
+            
+            return {
+                'price': price,
+                'currency': currency,
+                'airlines': airlines,
+                'id': offer['id'],
+                'is_direct': is_direct,
+                'segments': segments,
+                'stops': stops,
+                'departure_time': departure_time,
+                'arrival_time': arrival_time,
+                'segments_breakdown': segments_list
+            }
+        except Exception as e:
+            logger.error(f"Error processing flight offer: {str(e)}")
+            logger.debug(f"Problematic offer: {json.dumps(offer, indent=2)}")
             return None
-        
-        # Extract departure and arrival times
-        departure_time = offer['itineraries'][0]['segments'][0]['departure']['at']
-        arrival_time = offer['itineraries'][0]['segments'][-1]['arrival']['at']
-        
-        return {
-            'price': price,
-            'airlines': airlines,
-            'id': offer['id'],
-            'is_direct': is_direct,
-            'segments': segments,
-            'stops': segments - 1,  # Number of stops
-            'departure_time': departure_time,
-            'arrival_time': arrival_time
-        }
     
     def check_all_prices(self):
         """Check prices for all configured date ranges."""
@@ -255,6 +282,9 @@ class FlightPriceMonitor:
                         details = self.get_flight_details(offer)
                         if details is not None:  # Only include if not filtered out
                             filtered_offers.append(offer)
+                    
+                    if len(filtered_offers) == 0 and len(offers) > 0:
+                        logger.info(f"Filtered out all {len(offers)} offers for {depart_date} to {return_date}")
                     
                     all_offers.extend(filtered_offers)
                     
@@ -294,7 +324,7 @@ class FlightPriceMonitor:
                 time.sleep(1)
         
         if not all_offers:
-            logger.warning("No flight offers found for any dates")
+            logger.warning("No flight offers found for any dates after filtering")
             return
         
         # Find the cheapest offer
@@ -312,22 +342,24 @@ class FlightPriceMonitor:
             drop_amount = self.lowest_price_seen - price
             drop_percent = (drop_amount / self.lowest_price_seen) * 100 if self.lowest_price_seen != float('inf') else 0
             
-            logger.info(f"New lowest price found: ${price:.2f} (drop of ${drop_amount:.2f}, {drop_percent:.1f}%)")
+            logger.info(f"New lowest price found: ${price:.2f} {cheapest_details['currency']} (drop of ${drop_amount:.2f}, {drop_percent:.1f}%)")
             self.lowest_price_seen = price
             
             # Send notification if price is below threshold
             if self.price_threshold and price <= self.price_threshold:
                 self.send_notification(cheapest_offer)
         
-        logger.info(f"Cheapest price: ${price:.2f} with {', '.join(cheapest_details['airlines'])}")
+        logger.info(f"Cheapest price: ${price:.2f} {cheapest_details['currency']} with {', '.join(cheapest_details['airlines'])}")
         
-        # Fix the nested f-string issue
+        # Display flight type information
         if cheapest_details['is_direct']:
             flight_type = "Direct"
         else:
             flight_type = f"Connecting ({cheapest_details['stops']} stops)"
         
         logger.info(f"{flight_type} flight with {cheapest_details['segments']} segment(s)")
+        for segment_info in cheapest_details['segments_breakdown']:
+            logger.info(segment_info)
         
         return cheapest_details
         
@@ -357,17 +389,20 @@ class FlightPriceMonitor:
             flight_type = f"Connecting Flight ({flight_details['stops']} stops)"
         
         # Create email message
-        subject = f"Price Alert: Montreal to Lima - ${flight_details['price']:.2f}"
+        subject = f"Price Alert: Montreal to Lima - ${flight_details['price']:.2f} {flight_details['currency']}"
         body = f"""
         Flight Price Alert
         =================
         
         Montreal (YUL) to Lima (LIM)
-        Price: ${flight_details['price']:.2f} CAD
+        Price: ${flight_details['price']:.2f} {flight_details['currency']}
         Airlines: {', '.join(flight_details['airlines'])}
         Departure: {dep_str}
         Arrival: {arr_str}
         {flight_type}
+        
+        Segments:
+        {' | '.join(flight_details['segments_breakdown'])}
         
         This price is below your threshold of ${self.price_threshold}!
         Book now to secure this price!
@@ -451,11 +486,18 @@ def main():
     parser.add_argument("--interval", type=int, default=24, help="Check interval in hours")
     parser.add_argument("--flexible", action="store_true", help="Check flexible dates")
     parser.add_argument("--range", type=int, default=3, help="Days range for flexible dates")
-    parser.add_argument("--max-stops", type=int, default=1, help="Maximum number of stops (default: 1)")
+    parser.add_argument("--max-stops", type=int, default=2, help="Maximum number of stops (default: 2)")
     parser.add_argument("--any-dates", action="store_true", help="Check any dates (not just May 29-June 9, 2025)")
+    parser.add_argument("--currency", default="CAD", help="Currency code (default: CAD)")
     parser.add_argument("--test", action="store_true", help="Run once and exit (don't start scheduler)")
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     
     args = parser.parse_args()
+    
+    # Set debug logging if requested
+    if args.debug:
+        logging.getLogger().setLevel(logging.DEBUG)
+        logger.info("Debug logging enabled")
     
     monitor = FlightPriceMonitor(
         api_key=args.api_key,
@@ -468,7 +510,8 @@ def main():
         flexible_dates=args.flexible,
         days_range=args.range,
         max_stops=args.max_stops,
-        specific_dates=not args.any_dates
+        specific_dates=not args.any_dates,
+        currency=args.currency
     )
     
     try:
