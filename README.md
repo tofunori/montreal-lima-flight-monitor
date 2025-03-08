@@ -14,6 +14,8 @@ This tool uses the Amadeus Flight Offers Search API to regularly check flight pr
 - 📅 **Flexible Date Search**: Can search a range of dates to find the best deals
 - 🔄 **Customizable Schedule**: Configure how often to check for new prices
 - 🛫 **Airline and Route Details**: Provides detailed information about each flight option
+- ✈️ **Connection Filtering**: Limit results to direct flights or maximum one stop
+- 🗓️ **Specific Date Range**: Optimized for May 29 - June 9, 2025 travel window
 
 ## Prerequisites
 
@@ -46,6 +48,14 @@ python flight_monitor.py --test
 
 This will perform a single price check and display the results without starting the continuous monitoring.
 
+### 4. Check May 29 - June 9, 2025 with maximum one stop
+
+```bash
+python flight_monitor.py --interval 24 --max-stops 1 --email your@email.com
+```
+
+This will check prices daily for the May 29 - June 9, 2025 travel window, filtering to only include flights with at most one stop.
+
 ## Configuration Options
 
 ### Command Line Arguments
@@ -61,6 +71,8 @@ This will perform a single price check and display the results without starting 
 | `--interval` | Check interval in hours | 24 |
 | `--flexible` | Check flexible dates | False |
 | `--range` | Days range for flexible dates | 3 |
+| `--max-stops` | Maximum number of stops | 1 |
+| `--any-dates` | Check any dates (not just May 29-June 9) | False |
 | `--test` | Run once and exit | False |
 
 ### Environment Variables
@@ -89,43 +101,52 @@ While this script includes test API credentials, it's recommended to obtain your
 
 ## Usage Examples
 
-### Basic Usage - Monitor Prices
+### Basic Usage - Monitor Prices for May 29 - June 9, 2025
 
 ```bash
 python flight_monitor.py --threshold 800 --email your@email.com
 ```
 
 This will:
-- Start monitoring flights from Montreal to Lima
+- Start monitoring flights from Montreal to Lima for May 29 - June 9, 2025
 - Check prices every 24 hours
 - Send an email notification when a price below $800 CAD is found
+- Only include flights with at most one stop
 
-### Flexible Date Search
+### Check Daily with Flexible Dates Around May 29 - June 9
 
 ```bash
-python flight_monitor.py --flexible --range 5 --threshold 750
+python flight_monitor.py --flexible --range 3 --threshold 750 --interval 24
 ```
 
 This will:
-- Search for flights on a range of dates (±5 days from each search date)
-- Check prices every 24 hours
+- Check prices daily
+- Search for flights on a range of dates (±3 days around May 29 for departure and June 9 for return)
 - Set alert threshold to $750 CAD
+- Only include flights with at most one stop
 
-### Change Airports
-
-```bash
-python flight_monitor.py --origin YMQ --destination LIM --threshold 700
-```
-
-This will monitor flights from all Montreal airports (YMQ) to Lima.
-
-### Check More Frequently
+### Search for Direct Flights Only
 
 ```bash
-python flight_monitor.py --interval 6 --threshold 850
+python flight_monitor.py --max-stops 0 --threshold 900
 ```
 
-This will check flight prices every 6 hours.
+This will:
+- Only check for direct flights (no stops)
+- Set alert threshold to $900 CAD
+- Focus on May 29 - June 9, 2025 date range
+
+### Check Any Date (Not Just May 29 - June 9)
+
+```bash
+python flight_monitor.py --any-dates --flexible --threshold 700
+```
+
+This will:
+- Check flights for various dates (not just the May 29 - June 9 period)
+- Use flexible date search
+- Set alert threshold to $700 CAD
+- Only include flights with at most one stop
 
 ## Email Notifications Setup
 
