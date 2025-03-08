@@ -31,10 +31,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# LLM API Settings - you can use OpenAI, Anthropic, or other LLM APIs
-# For this example, we'll use Anthropic's Claude
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
+# LLM API Settings - using OpenRouter with Mistral Small 24B model
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+LLM_MODEL = "mistralai/mistral-small-24b-instruct-2501:free"
 
 def process_natural_language(query):
     """
@@ -47,7 +47,7 @@ def process_natural_language(query):
         dict: Extracted parameters for flight search
     """
     # If no API key is set, use a simpler rule-based approach
-    if not ANTHROPIC_API_KEY:
+    if not OPENROUTER_API_KEY:
         logger.warning("No LLM API key set. Using basic keyword extraction.")
         return basic_parameter_extraction(query)
     
@@ -72,23 +72,25 @@ def process_natural_language(query):
     try:
         headers = {
             "Content-Type": "application/json",
-            "x-api-key": ANTHROPIC_API_KEY,
-            "anthropic-version": "2023-06-01"
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "HTTP-Referer": "https://github.com/tofunori/montreal-lima-flight-monitor", # Replace with your website
+            "X-Title": "Montreal-Lima Flight Monitor"
         }
         
         data = {
-            "model": "claude-3-sonnet-20240229",
-            "max_tokens": 1000,
-            "system": system_prompt,
-            "messages": [{"role": "user", "content": query}]
+            "model": LLM_MODEL,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": query}
+            ]
         }
         
         logger.info(f"Sending query to LLM: {query[:100]}...")
-        response = requests.post(ANTHROPIC_API_URL, headers=headers, json=data)
+        response = requests.post(OPENROUTER_API_URL, headers=headers, json=data)
         
         if response.status_code == 200:
             result = response.json()
-            assistant_message = result["content"][0]["text"]
+            assistant_message = result["choices"][0]["message"]["content"]
             
             # Try to extract JSON from the response
             try:
@@ -400,7 +402,7 @@ def generate_response(query, params, result):
     Returns:
         str: Natural language response
     """
-    if not ANTHROPIC_API_KEY:
+    if not OPENROUTER_API_KEY:
         # Simple rule-based response if no LLM available
         response = f"J'ai recherché des vols avec les paramètres suivants:\n"
         response += f"- Origine: {params['origin']}\n"
@@ -455,8 +457,9 @@ def generate_response(query, params, result):
             
             headers = {
                 "Content-Type": "application/json",
-                "x-api-key": ANTHROPIC_API_KEY,
-                "anthropic-version": "2023-06-01"
+                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                "HTTP-Referer": "https://github.com/tofunori/montreal-lima-flight-monitor", # Replace with your website
+                "X-Title": "Montreal-Lima Flight Monitor"
             }
             
             # Prepare the content for the LLM
@@ -471,17 +474,18 @@ def generate_response(query, params, result):
             """
             
             data = {
-                "model": "claude-3-sonnet-20240229",
-                "max_tokens": 1000,
-                "system": system_prompt,
-                "messages": [{"role": "user", "content": content}]
+                "model": LLM_MODEL,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": content}
+                ]
             }
             
-            response = requests.post(ANTHROPIC_API_URL, headers=headers, json=data)
+            response = requests.post(OPENROUTER_API_URL, headers=headers, json=data)
             
             if response.status_code == 200:
                 result = response.json()
-                return result["content"][0]["text"]
+                return result["choices"][0]["message"]["content"]
             else:
                 logger.error(f"Error from LLM API: {response.status_code} - {response.text}")
                 # Fall back to simple response
