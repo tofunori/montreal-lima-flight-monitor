@@ -350,10 +350,12 @@ def run_flight_monitor(params):
         cmd.extend(["--destination", params["destination"]])
     
     if params.get("depart_date"):
-        cmd.extend(["--depart-date", params["depart_date"]])
+        # The correct parameter name in flight_monitor.py is "depart" not "depart-date"
+        cmd.extend(["--depart", params["depart_date"]])
     
     if params.get("return_date"):
-        cmd.extend(["--return-date", params["return_date"]])
+        # The correct parameter name in flight_monitor.py is "return" not "return-date"
+        cmd.extend(["--return", params["return_date"]])
     
     if params.get("max_stops") is not None:
         cmd.extend(["--max-stops", str(params["max_stops"])])
