@@ -351,7 +351,7 @@ class FlightPriceMonitor:
         
         logger.info(f"Cheapest price: ${price:.2f} {cheapest_details['currency']} with {', '.join(cheapest_details['airlines'])}")
         
-        # Display flight type information
+        # Fix the nested f-string issue
         if cheapest_details['is_direct']:
             flight_type = "Direct"
         else:
@@ -360,9 +360,67 @@ class FlightPriceMonitor:
         logger.info(f"{flight_type} flight with {cheapest_details['segments']} segment(s)")
         for segment_info in cheapest_details['segments_breakdown']:
             logger.info(segment_info)
+            
+        # Display booking information
+        dep_dt = datetime.fromisoformat(cheapest_details['departure_time'].replace('Z', '+00:00'))
+        arr_dt = datetime.fromisoformat(cheapest_details['arrival_time'].replace('Z', '+00:00'))
+        booking_links = self.generate_booking_links(cheapest_details, dep_dt.strftime("%Y-%m-%d"), arr_dt.strftime("%Y-%m-%d"))
+        logger.info("Booking information:")
+        for line in booking_links.strip().split('\n'):
+            logger.info(line)
         
         return cheapest_details
         
+    def generate_booking_links(self, flight_details, depart_date, return_date):
+        """
+        Generate search links for the found flight.
+        
+        Args:
+            flight_details (dict): The flight details dictionary
+            depart_date (str): Departure date in YYYY-MM-DD format
+            return_date (str): Return date in YYYY-MM-DD format
+            
+        Returns:
+            str: A string with multiple booking links
+        """
+        origin = self.origin
+        destination = self.destination
+        airlines_str = ','.join(flight_details['airlines'])
+        
+        # Google Flights link
+        google_flights = f"https://www.google.com/travel/flights?q=Flights%20to%20{destination}%20from%20{origin}%20on%20{depart_date}%20through%20{return_date}"
+        
+        # Kayak link
+        kayak = f"https://www.kayak.com/flights/{origin}-{destination}/{depart_date}/{return_date}?sort=bestflight_a"
+        
+        # Skyscanner link
+        skyscanner = f"https://www.skyscanner.com/transport/flights/{origin}/{destination}/{depart_date}/{return_date}/"
+        
+        # Direct airline links if we know the airline
+        airline_links = ""
+        for airline in flight_details['airlines']:
+            if airline == "AC":  # Air Canada
+                airline_links += f"Air Canada: https://www.aircanada.com/en-ca/flights-from-{origin}-to-{destination}\n        "
+            elif airline == "UA":  # United
+                airline_links += f"United: https://www.united.com/en/us/flights/search?f={origin}&t={destination}&d={depart_date}&r={return_date}\n        "
+            elif airline == "LA":  # LATAM
+                airline_links += f"LATAM: https://www.latamairlines.com/ca/en/flight-search?origin={origin}&destination={destination}&outbound={depart_date}&inbound={return_date}\n        "
+            elif airline == "AV":  # Avianca
+                airline_links += f"Avianca: https://www.avianca.com/ca/en/flights/{origin}-{destination}/\n        "
+        
+        links = f"""
+        Google Flights: {google_flights}
+        Kayak: {kayak}
+        Skyscanner: {skyscanner}
+        
+        Airline Websites:
+        {airline_links if airline_links else "No direct airline links available"}
+        
+        IMPORTANT: Search for flights with similar airlines ({airlines_str}) and number of stops ({flight_details['stops']})
+        """
+        
+        return links
+
     def send_notification(self, offer):
         """
         Send notification about a price drop.
@@ -388,6 +446,9 @@ class FlightPriceMonitor:
         else:
             flight_type = f"Connecting Flight ({flight_details['stops']} stops)"
         
+        # Generate search links
+        booking_links = self.generate_booking_links(flight_details, dep_dt.strftime("%Y-%m-%d"), arr_dt.strftime("%Y-%m-%d"))
+        
         # Create email message
         subject = f"Price Alert: Montreal to Lima - ${flight_details['price']:.2f} {flight_details['currency']}"
         body = f"""
@@ -406,6 +467,9 @@ class FlightPriceMonitor:
         
         This price is below your threshold of ${self.price_threshold}!
         Book now to secure this price!
+        
+        Search for this flight:
+        {booking_links}
         
         --
         Montreal-Lima Flight Monitor
