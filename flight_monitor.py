@@ -22,7 +22,7 @@ import argparse
 import schedule
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from amadeus import Client, ResponseError
 
 # Configure logging
@@ -40,10 +40,15 @@ logger = logging.getLogger(__name__)
 DEFAULT_API_KEY = "yUMQuHBLUG10cuUsfw8zM8Cr1MKBmoP0" 
 DEFAULT_API_SECRET = "NUbxODHbGuBNvLtL"
 
+# Specific date range for May 29 - June 9, 2025
+TARGET_DEPARTURE_DATE = date(2025, 5, 29)
+TARGET_RETURN_DATE = date(2025, 6, 9)
+
 class FlightPriceMonitor:
     def __init__(self, api_key=None, api_secret=None, origin="YUL", destination="LIM", 
                  email=None, price_threshold=None, check_interval_hours=24,
-                 flexible_dates=False, days_range=3, smtp_settings=None):
+                 flexible_dates=False, days_range=3, smtp_settings=None,
+                 max_stops=1, specific_dates=True):
         """
         Initialize the flight price monitor.
         
@@ -58,6 +63,8 @@ class FlightPriceMonitor:
             flexible_dates (bool): Whether to check prices for a range of dates
             days_range (int): Number of days before/after the target date to check
             smtp_settings (dict, optional): SMTP settings for email notifications
+            max_stops (int): Maximum number of stops allowed (default: 1)
+            specific_dates (bool): Use specific date range May 29 - June 9, 2025
         """
         # Try to get API credentials from environment variables first, then use defaults
         self.api_key = api_key or os.environ.get('AMADEUS_API_KEY', DEFAULT_API_KEY)
@@ -73,8 +80,13 @@ class FlightPriceMonitor:
         self.smtp_settings = smtp_settings
         self.lowest_price_seen = float('inf')
         self.previous_prices = {}
+        self.max_stops = max_stops
+        self.specific_dates = specific_dates
         
         logger.info(f"Initializing flight monitor for {origin} to {destination}")
+        logger.info(f"Maximum stops: {max_stops}")
+        if self.specific_dates:
+            logger.info(f"Focusing on May 29 - June 9, 2025 date range")
         
         # Initialize Amadeus client
         self.amadeus = Client(
@@ -135,6 +147,8 @@ class FlightPriceMonitor:
             list: List of flight offers
         """
         logger.info(f"Checking prices for {self.origin} to {self.destination} on {depart_date}")
+        if return_date:
+            logger.info(f"Return date: {return_date}")
         
         # Prepare search parameters
         search_params = {
@@ -143,7 +157,7 @@ class FlightPriceMonitor:
             "departureDate": depart_date,
             "adults": 1,
             "currencyCode": "CAD",  # Canadian dollars
-            "max": 10  # Limit results to 10 offers
+            "max": 20  # Increased to get more options for filtering
         }
         
         # Add return date for round trips
@@ -187,6 +201,13 @@ class FlightPriceMonitor:
         segments = sum(len(itinerary['segments']) for itinerary in offer['itineraries'])
         is_direct = segments == 1
         
+        # Skip flights with more than the maximum allowed stops
+        # Each stop adds 1 to segment count (1 segment = direct, 2 segments = 1 stop, etc.)
+        max_segments = self.max_stops + 1
+        if segments > max_segments:
+            logger.debug(f"Skipping flight with {segments-1} stops (more than max allowed: {self.max_stops})")
+            return None
+        
         # Extract departure and arrival times
         departure_time = offer['itineraries'][0]['segments'][0]['departure']['at']
         arrival_time = offer['itineraries'][0]['segments'][-1]['arrival']['at']
@@ -197,6 +218,7 @@ class FlightPriceMonitor:
             'id': offer['id'],
             'is_direct': is_direct,
             'segments': segments,
+            'stops': segments - 1,  # Number of stops
             'departure_time': departure_time,
             'arrival_time': arrival_time
         }
@@ -205,28 +227,71 @@ class FlightPriceMonitor:
         """Check prices for all configured date ranges."""
         today = datetime.now().date()
         
-        # Generate dates for the next 3 months
-        depart_dates = []
-        for i in range(7, 90, 7):  # Weekly starting from 1 week ahead to 3 months
-            depart_date = today + timedelta(days=i)
+        if self.specific_dates:
+            # Generate dates focusing on the May 29 - June 9, 2025 target range
+            departure_dates = []
+            return_dates = []
             
+            # If we're using flexible dates, add dates around the target dates
             if self.flexible_dates:
-                # Add dates around the target date
-                depart_dates.extend(self.generate_date_range(depart_date, self.days_range))
+                departure_dates = self.generate_date_range(TARGET_DEPARTURE_DATE, self.days_range)
+                return_dates = self.generate_date_range(TARGET_RETURN_DATE, self.days_range)
             else:
-                depart_dates.append(depart_date.strftime("%Y-%m-%d"))
-        
-        # Remove duplicates and sort
-        depart_dates = sorted(list(set(depart_dates)))
-        
-        # Check prices for one-way trips
-        all_offers = []
-        for depart_date in depart_dates:
-            offers = self.check_prices(depart_date)
-            all_offers.extend(offers)
+                # Just use the exact target dates
+                departure_dates = [TARGET_DEPARTURE_DATE.strftime("%Y-%m-%d")]
+                return_dates = [TARGET_RETURN_DATE.strftime("%Y-%m-%d")]
             
-            # Don't overwhelm the API
-            time.sleep(1)
+            logger.info(f"Checking {len(departure_dates)} departure dates and {len(return_dates)} return dates")
+            
+            # Check round-trip prices
+            all_offers = []
+            for depart_date in departure_dates:
+                for return_date in return_dates:
+                    offers = self.check_prices(depart_date, return_date)
+                    
+                    # Filter offers with more than max_stops
+                    filtered_offers = []
+                    for offer in offers:
+                        details = self.get_flight_details(offer)
+                        if details is not None:  # Only include if not filtered out
+                            filtered_offers.append(offer)
+                    
+                    all_offers.extend(filtered_offers)
+                    
+                    # Don't overwhelm the API
+                    time.sleep(1)
+            
+        else:
+            # Original code - Generate dates for the next 3 months
+            depart_dates = []
+            for i in range(7, 90, 7):  # Weekly starting from 1 week ahead to 3 months
+                depart_date = today + timedelta(days=i)
+                
+                if self.flexible_dates:
+                    # Add dates around the target date
+                    depart_dates.extend(self.generate_date_range(depart_date, self.days_range))
+                else:
+                    depart_dates.append(depart_date.strftime("%Y-%m-%d"))
+            
+            # Remove duplicates and sort
+            depart_dates = sorted(list(set(depart_dates)))
+            
+            # Check prices for one-way trips
+            all_offers = []
+            for depart_date in depart_dates:
+                offers = self.check_prices(depart_date)
+                
+                # Filter offers with more than max_stops
+                filtered_offers = []
+                for offer in offers:
+                    details = self.get_flight_details(offer)
+                    if details is not None:  # Only include if not filtered out
+                        filtered_offers.append(offer)
+                
+                all_offers.extend(filtered_offers)
+                
+                # Don't overwhelm the API
+                time.sleep(1)
         
         if not all_offers:
             logger.warning("No flight offers found for any dates")
@@ -255,7 +320,7 @@ class FlightPriceMonitor:
                 self.send_notification(cheapest_offer)
         
         logger.info(f"Cheapest price: ${price:.2f} with {', '.join(cheapest_details['airlines'])}")
-        logger.info(f"{'Direct' if cheapest_details['is_direct'] else 'Connecting'} flight with {cheapest_details['segments']} segment(s)")
+        logger.info(f"{'Direct' if cheapest_details['is_direct'] else f'Connecting ({cheapest_details[\"stops\"]} stops)'} flight with {cheapest_details['segments']} segment(s)")
         
         return cheapest_details
         
@@ -289,7 +354,7 @@ class FlightPriceMonitor:
         Airlines: {', '.join(flight_details['airlines'])}
         Departure: {dep_str}
         Arrival: {arr_str}
-        {'Direct Flight' if flight_details['is_direct'] else f'Connecting Flight ({flight_details["segments"]} segments)'}
+        {'Direct Flight' if flight_details['is_direct'] else f'Connecting Flight ({flight_details["stops"]} stops)'}
         
         This price is below your threshold of ${self.price_threshold}!
         Book now to secure this price!
@@ -373,6 +438,8 @@ def main():
     parser.add_argument("--interval", type=int, default=24, help="Check interval in hours")
     parser.add_argument("--flexible", action="store_true", help="Check flexible dates")
     parser.add_argument("--range", type=int, default=3, help="Days range for flexible dates")
+    parser.add_argument("--max-stops", type=int, default=1, help="Maximum number of stops (default: 1)")
+    parser.add_argument("--any-dates", action="store_true", help="Check any dates (not just May 29-June 9, 2025)")
     parser.add_argument("--test", action="store_true", help="Run once and exit (don't start scheduler)")
     
     args = parser.parse_args()
@@ -386,7 +453,9 @@ def main():
         price_threshold=args.threshold,
         check_interval_hours=args.interval,
         flexible_dates=args.flexible,
-        days_range=args.range
+        days_range=args.range,
+        max_stops=args.max_stops,
+        specific_dates=not args.any_dates
     )
     
     try:
