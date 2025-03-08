@@ -14,8 +14,10 @@ This tool uses the Amadeus Flight Offers Search API to regularly check flight pr
 - 📅 **Flexible Date Search**: Can search a range of dates to find the best deals
 - 🔄 **Customizable Schedule**: Configure how often to check for new prices
 - 🛫 **Airline and Route Details**: Provides detailed information about each flight option
-- ✈️ **Connection Filtering**: Limit results to direct flights or maximum one stop
+- ✈️ **Connection Filtering**: Limit results to direct flights or maximum number of stops
 - 🗓️ **Specific Date Range**: Optimized for May 29 - June 9, 2025 travel window
+- 🔗 **Booking Links**: Automatically generates search links to book the flights
+- 💰 **Currency Support**: Explicitly requests prices in Canadian dollars (CAD)
 
 ## Prerequisites
 
@@ -48,13 +50,13 @@ python flight_monitor.py --test
 
 This will perform a single price check and display the results without starting the continuous monitoring.
 
-### 4. Check May 29 - June 9, 2025 with maximum one stop
+### 4. Check May 29 - June 9, 2025 with maximum two stops
 
 ```bash
-python flight_monitor.py --interval 24 --max-stops 1 --email your@email.com
+python flight_monitor.py --interval 24 --max-stops 2 --email your@email.com
 ```
 
-This will check prices daily for the May 29 - June 9, 2025 travel window, filtering to only include flights with at most one stop.
+This will check prices daily for the May 29 - June 9, 2025 travel window, filtering to only include flights with at most two stops.
 
 ## Configuration Options
 
@@ -71,8 +73,10 @@ This will check prices daily for the May 29 - June 9, 2025 travel window, filter
 | `--interval` | Check interval in hours | 24 |
 | `--flexible` | Check flexible dates | False |
 | `--range` | Days range for flexible dates | 3 |
-| `--max-stops` | Maximum number of stops | 1 |
+| `--max-stops` | Maximum number of stops | 2 |
 | `--any-dates` | Check any dates (not just May 29-June 9) | False |
+| `--currency` | Currency code | CAD |
+| `--debug` | Enable debug logging | False |
 | `--test` | Run once and exit | False |
 
 ### Environment Variables
@@ -111,7 +115,7 @@ This will:
 - Start monitoring flights from Montreal to Lima for May 29 - June 9, 2025
 - Check prices every 24 hours
 - Send an email notification when a price below $800 CAD is found
-- Only include flights with at most one stop
+- Only include flights with at most two stops
 
 ### Check Daily with Flexible Dates Around May 29 - June 9
 
@@ -123,7 +127,7 @@ This will:
 - Check prices daily
 - Search for flights on a range of dates (±3 days around May 29 for departure and June 9 for return)
 - Set alert threshold to $750 CAD
-- Only include flights with at most one stop
+- Only include flights with at most two stops
 
 ### Search for Direct Flights Only
 
@@ -146,7 +150,29 @@ This will:
 - Check flights for various dates (not just the May 29 - June 9 period)
 - Use flexible date search
 - Set alert threshold to $700 CAD
-- Only include flights with at most one stop
+- Only include flights with at most two stops
+
+### Debug Mode for Detailed Information
+
+```bash
+python flight_monitor.py --debug --test
+```
+
+This will:
+- Run in test mode (once and exit)
+- Enable detailed debug logging
+- Show comprehensive information about flight offers and filtering
+
+## Booking Links
+
+The script automatically generates booking links for found flights to several travel websites:
+
+- Google Flights
+- Kayak
+- Skyscanner
+- Direct airline websites (Air Canada, United, LATAM, Avianca)
+
+These links are displayed in the terminal output and included in email notifications, allowing you to quickly search for and book the flights that were found.
 
 ## Email Notifications Setup
 
@@ -237,6 +263,8 @@ Amadeus API has rate limits. If you encounter errors, try:
 ### No Flights Found
 
 If no flights are found:
+- Try increasing the `--max-stops` value (e.g., `--max-stops 3`) as most flights between Montreal and Lima have multiple stops
+- Use the `--debug` flag to see detailed information about what's being filtered out
 - Verify the airport codes are correct
 - Try searching further in advance
 - Check if there are direct flights available between your chosen airports
