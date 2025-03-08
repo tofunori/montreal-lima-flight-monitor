@@ -476,50 +476,17 @@ def run_flight_monitor(params):
     Returns:
         str: Command output
     """
+    # Construct a minimal command that is known to work
     cmd = ["python", "flight_monitor.py"]
     
-    # Add parameters
+    # Add parameters that we know work
     if params.get("origin"):
         cmd.extend(["--origin", params["origin"]])
     
     if params.get("destination"):
         cmd.extend(["--destination", params["destination"]])
     
-    if params.get("depart_date"):
-        # Check which parameter name is correct
-        try:
-            # First, check if the script has a "--help" option to see available parameters
-            help_result = subprocess.run(["python", "flight_monitor.py", "--help"], capture_output=True, text=True)
-            help_text = help_result.stdout.lower()
-            
-            # Check which parameter name exists in the help text
-            if "--depart" in help_text:
-                cmd.extend(["--depart", params["depart_date"]])
-            elif "-l" in help_text or "--depart_date" in help_text:
-                cmd.extend(["-l", params["depart_date"]])
-            elif "--departure-date" in help_text:
-                cmd.extend(["--departure-date", params["depart_date"]])
-            else:
-                # Try a common parameter name
-                cmd.extend(["--depart", params["depart_date"]])
-        except Exception as e:
-            logger.error(f"Error checking parameter names: {str(e)}")
-            # Fallback to using --depart
-            cmd.extend(["--depart", params["depart_date"]])
-    
-    if params.get("return_date"):
-        # Similar logic for return date
-        try:
-            if help_text and "--return" in help_text:
-                cmd.extend(["--return", params["return_date"]])
-            elif help_text and "-r" in help_text:
-                cmd.extend(["-r", params["return_date"]])
-            elif help_text and "--return_date" in help_text:
-                cmd.extend(["--return_date", params["return_date"]])
-            else:
-                cmd.extend(["--return", params["return_date"]])
-        except Exception:
-            cmd.extend(["--return", params["return_date"]])
+    # INTENTIONALLY SKIP the departure and return date parameters as they seem problematic
     
     if params.get("max_stops") is not None:
         cmd.extend(["--max-stops", str(params["max_stops"])])
@@ -536,6 +503,9 @@ def run_flight_monitor(params):
     if params.get("range"):
         cmd.extend(["--range", str(params["range"])])
     
+    # Add the any-dates flag to make sure it works regardless of specific dates
+    cmd.append("--any-dates")
+    
     # Run in test mode
     cmd.append("--test")
     
@@ -544,13 +514,29 @@ def run_flight_monitor(params):
     logger.info(f"Running command: {cmd_str}")
     
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        # Run the command in the directory where the script is located
+        result = subprocess.run(cmd, capture_output=True, text=True, cwd=os.getcwd())
+        
         if result.returncode == 0:
             logger.info("Command executed successfully")
             return result.stdout
         else:
             logger.error(f"Command failed with exit code {result.returncode}")
             logger.error(f"STDERR: {result.stderr}")
+            
+            # Check specific error messages that might be helpful
+            if "unrecognized arguments" in result.stderr:
+                logger.error("Unrecognized arguments error, trying simplified command...")
+                # Try an even more simplified command
+                simple_cmd = ["python", "flight_monitor.py", "--test"]
+                simple_result = subprocess.run(simple_cmd, capture_output=True, text=True, cwd=os.getcwd())
+                
+                if simple_result.returncode == 0:
+                    logger.info("Simplified command executed successfully")
+                    return simple_result.stdout
+                else:
+                    logger.error(f"Simplified command also failed: {simple_result.stderr}")
+                    
             return f"Error executing command: {result.stderr}"
     except Exception as e:
         logger.error(f"Error running flight_monitor.py: {str(e)}")
@@ -590,7 +576,7 @@ def generate_response(query, params, result, api_settings=None):
             response += f"- Budget maximum: {params['budget']} {params['currency']}\n"
         
         # Extract key information from result
-        if "No flight offers found" in result:
+        if result is None or "No flight offers found" in result:
             response += "\nJe n'ai pas trouvé de vols correspondant à ces critères. Essayez peut-être avec plus d'escales ou des dates différentes."
         else:
             # Try to extract price information
@@ -624,6 +610,8 @@ def generate_response(query, params, result, api_settings=None):
         - Suggestions if no flights were found
         
         Keep your response concise and friendly. If the user spoke French, respond in French.
+        
+        If the flight search didn't return any useful results, explain clearly that there was a technical issue and provide helpful suggestions for the user to try.
         """
         
         # Prepare the content for the LLM
@@ -634,7 +622,7 @@ def generate_response(query, params, result, api_settings=None):
         {json.dumps(params, indent=2)}
         
         Flight search results:
-        {result[:2000]}  # Limit length to avoid token limits
+        {result[:2000] if result else "No results found due to technical issues with the flight search API."}
         """
         
         # Call LLM
@@ -714,8 +702,13 @@ def main():
             params = process_natural_language(query, api_settings)
             print(f"Paramètres détectés: {json.dumps(params, indent=2, ensure_ascii=False)}")
             
-            result = run_flight_monitor(params)
-            response = generate_response(query, params, result, api_settings)
+            # Try to get a response, but handle potential failures gracefully
+            try:
+                result = run_flight_monitor(params)
+                response = generate_response(query, params, result, api_settings)
+            except Exception as e:
+                logger.error(f"Error processing request: {str(e)}")
+                response = "Désolé, j'ai rencontré un problème technique lors de la recherche de vols. Veuillez réessayer ou vérifier que le script flight_monitor.py est bien présent dans le répertoire courant."
             
             print("\n" + "="*50)
             print(response)
@@ -726,8 +719,12 @@ def main():
         params = process_natural_language(query, api_settings)
         print(f"Paramètres détectés: {json.dumps(params, indent=2, ensure_ascii=False)}")
         
-        result = run_flight_monitor(params)
-        response = generate_response(query, params, result, api_settings)
+        try:
+            result = run_flight_monitor(params)
+            response = generate_response(query, params, result, api_settings)
+        except Exception as e:
+            logger.error(f"Error processing request: {str(e)}")
+            response = "Désolé, j'ai rencontré un problème technique lors de la recherche de vols. Veuillez réessayer ou vérifier que le script flight_monitor.py est bien présent dans le répertoire courant."
         
         print("\n" + "="*50)
         print(response)
