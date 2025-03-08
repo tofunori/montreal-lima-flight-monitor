@@ -19,10 +19,11 @@ Cet outil utilise l'API Amadeus Flight Offers Search pour vérifier régulièrem
 - 🔗 **Liens de Réservation**: Génère automatiquement des liens de recherche pour réserver les vols
 - 💰 **Support des Devises**: Demande explicitement les prix en dollars canadiens (CAD)
 - 🗣️ **Interface en Langage Naturel**: Utilisez des requêtes en français ou en anglais pour chercher des vols
+- 🤖 **Choix de Modèles LLM**: Flexibilité pour utiliser différents fournisseurs et modèles d'IA
 
-## Nouveauté : Assistant de Vol Conversationnel
+## Nouveauté : Assistant de Vol Conversationnel avec Choix de LLM
 
-L'outil intègre maintenant un assistant basé sur un LLM (Large Language Model) pour permettre des recherches en langage naturel !
+L'outil intègre maintenant un assistant basé sur différents modèles de langage (LLM) pour permettre des recherches en langage naturel !
 
 ### Utilisation de l'Assistant de Vol
 
@@ -36,35 +37,54 @@ Cela lancera une interface conversationnelle où vous pourrez poser des question
 - "Je cherche un vol de YUL à CUZ fin mai avec maximum 3 escales"
 - "Vols pour le Pérou en juin à moins de 900$ CAD"
 
-L'assistant va :
-1. Analyser votre demande en langage naturel
-2. Extraire les paramètres de recherche pertinents
-3. Exécuter la recherche de vols
-4. Vous répondre avec les résultats dans un langage naturel
+### Choix du Fournisseur de LLM
 
-### Configuration de l'Assistant
-
-Pour utiliser toutes les fonctionnalités de l'assistant, vous aurez besoin d'une clé API pour un LLM. Par défaut, le script est configuré pour utiliser l'API Claude d'Anthropic.
-
-Définissez votre clé API comme variable d'environnement :
+Vous pouvez choisir parmi plusieurs fournisseurs de LLM :
 
 ```bash
+# Visualiser les fournisseurs et modèles disponibles
+python flight_assistant.py --list
+
+# Utiliser un fournisseur et modèle spécifique
+python flight_assistant.py --provider openai --model gpt-4 --interactive
+```
+
+Fournisseurs disponibles :
+- **OpenRouter** : Accès à Mistral, Mixtral, Gemma, Llama 3, etc.
+- **OpenAI** : Accès aux modèles GPT
+- **Anthropic** : Accès aux modèles Claude
+
+En mode interactif, vous pouvez également changer de fournisseur en tapant :
+```
+use openai model gpt-4
+```
+
+### Configuration des API
+
+Pour utiliser les différents fournisseurs de LLM, configurez les variables d'environnement correspondantes :
+
+```bash
+# Pour OpenRouter (Mistral, Mixtral, etc.)
+export OPENROUTER_API_KEY=votre_clé_api
+
+# Pour OpenAI (GPT)
+export OPENAI_API_KEY=votre_clé_api
+
+# Pour Anthropic (Claude)
 export ANTHROPIC_API_KEY=votre_clé_api
 ```
 
 Sous Windows :
 ```cmd
-set ANTHROPIC_API_KEY=votre_clé_api
+set OPENROUTER_API_KEY=votre_clé_api
 ```
-
-Si aucune clé API n'est configurée, l'assistant utilise une méthode d'extraction de paramètres plus basique basée sur des mots-clés, qui est moins précise mais fonctionne sans dépendances externes.
 
 ## Prérequis
 
 - Python 3.8 ou supérieur
 - Un compte Amadeus for Developers (gratuit)
 - (Optionnel) Compte email pour les notifications
-- (Optionnel) Clé API Anthropic pour l'assistant conversationnel
+- (Optionnel) Clé API pour au moins un des fournisseurs de LLM
 
 ## Démarrage Rapide
 
@@ -118,11 +138,14 @@ python flight_assistant.py --interactive
 | `--debug` | Activer la journalisation de débogage | False |
 | `--test` | Exécuter une fois et quitter | False |
 
-## Sécurité et Considérations
+### Arguments pour l'Assistant de Vol
 
-- Ne codez pas en dur vos identifiants API réels ou mots de passe SMTP dans le script
-- Utilisez des variables d'environnement ou un gestionnaire d'identifiants sécurisé
-- Les identifiants de test inclus sont uniquement à des fins de démonstration et ont des fonctionnalités limitées
+| Argument | Description | Défaut |
+|----------|-------------|---------|
+| `--interactive` | Mode interactif | False |
+| `--provider` | Fournisseur de LLM | openrouter |
+| `--model` | Modèle de LLM | dépend du fournisseur |
+| `--list` | Liste des fournisseurs et modèles | False |
 
 ## Licence
 
